@@ -55,18 +55,19 @@ fn change_workspace_name(win: swayipc::Node) -> Result<(), Box<dyn std::error::E
             "■"
         } else {
             let parent = find_parent(outputs, &win);
+            println!("{:?}", parent.layout);
             if parent.layout == NodeLayout::SplitH {
                 if siblings == 2 {
-                    if win.nodes[0] == win { "◧" } else { "◨" }
+                    if ws.nodes[0].id == win.id { "◧" } else { "◨" }
                 } else {
                     for x in 0..siblings {
-                        layout_icons.push_str(if win.nodes[x] == win { "▮" } else { "▯" });
+                        layout_icons.push_str(if ws.nodes[x].id == win.id { "▮" } else { "▯" });
                     }
                     &layout_icons
                 }
             } else if parent.layout == NodeLayout::SplitV {
                 if siblings == 2 {
-                    if win.nodes[0] == win { "⬒" } else { "⬓" }
+                    if ws.nodes[0].id == win.id { "⬒" } else { "⬓" }
                 } else {
                     "▤"
                 }
