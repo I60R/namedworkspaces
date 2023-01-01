@@ -1,7 +1,7 @@
-use swayipc::{Event, EventType, WindowEvent, NodeType, NodeLayout, WindowChange};
+use swayipc::{Event, EventType, WindowEvent, NodeType, NodeLayout, WindowChange, Node, Connection};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let sway_rx = swayipc::Connection::new()?;
+    let sway_rx = Connection::new()?;
 
     let events = sway_rx
         .subscribe([EventType::Window, EventType::Binding])?;
@@ -10,30 +10,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match e {
 
             Ok(Event::Window(e)) if matches!(*e, WindowEvent {
-                change:
-                    | WindowChange::Focus
-                    | WindowChange::Move
-                    | WindowChange::Floating,
+                change: WindowChange::Focus | WindowChange::Move | WindowChange::Floating,
                 ..
             }) => {
-                let mut sway_tx = swayipc::Connection::new()?;
-                let tree = sway_tx.get_tree()?;
-                set_workspace_name(&mut sway_tx, &tree, &e.container)?;
+                let mut sway = Connection::new()?;
+                let workspaces = get_workspaces(&mut sway)?;
+                set_workspace_name(&mut sway, &workspaces, &e.container)?;
             },
 
             Ok(Event::Window(e)) if matches!(*e, WindowEvent {
                 change: WindowChange::Close,
                 ..
             }) => {
-                let mut sway_tx = swayipc::Connection::new()?;
-                let tree = sway_tx.get_tree()?;
-                set_workspace_name(&mut sway_tx, &tree, find_focused(&tree))?;
+                let mut sway = Connection::new()?;
+                let tree = get_workspaces(&mut sway)?;
+                let focused = find_focused(&tree);
+                set_workspace_name(&mut sway, &tree, focused)?;
             },
 
             Ok(Event::Binding(_)) => {
-                let mut sway_tx = swayipc::Connection::new()?;
-                let tree = sway_tx.get_tree()?;
-                set_workspace_name(&mut sway_tx, &tree, find_focused(&tree))?;
+                let mut sway = Connection::new()?;
+                let tree = get_workspaces(&mut sway)?;
+                let focused = find_focused(&tree);
+                set_workspace_name(&mut sway, &tree, focused)?;
             }
 
             _ => {}
@@ -45,13 +44,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 
 fn set_workspace_name(
-    sway: &mut swayipc::Connection,
-    tree: &swayipc::Node,
-    win: &swayipc::Node,
+    sway: &mut Connection,
+    workspaces: &Vec<Node>,
+    win: &Node,
 ) -> Result<(), Box<dyn std::error::Error>> {
 
-    let ws = find_workspace(tree, &win);
-    let parent = find_parent(tree, &win);
+    let ws = find_workspace(workspaces, &win);
+    let parent = find_parent(workspaces, &win);
     let siblings = parent.nodes.len();
 
     let win_properties = win.window_properties.as_ref();
@@ -111,10 +110,19 @@ fn set_workspace_name(
     Ok(())
 }
 
+fn get_workspaces(sway: &mut Connection) -> Result<Vec<Node>, Box<dyn std::error::Error>> {
+    let tree = sway.get_tree()?;
+    let workspaces = tree.nodes.into_iter().chain(tree.floating_nodes)
+        .flat_map(|outputs| outputs.nodes.into_iter().chain(outputs.floating_nodes))
+        .filter(|workspace| workspace.name.as_deref() != Some("__i3_scratch"))
+        .collect();
+    Ok(workspaces)
+}
 
-fn find_focused(tree: &swayipc::Node) -> &swayipc::Node {
-    let mut stack = Vec::with_capacity(tree.nodes.len() + tree.floating_nodes.len());
-    stack.push(tree);
+
+fn find_focused(workspaces: &Vec<Node>) -> &Node {
+    let mut stack = Vec::with_capacity(workspaces.len());
+    stack.extend(workspaces);
 
     while let Some(n) = stack.pop() {
         if n.focused {
@@ -127,9 +135,9 @@ fn find_focused(tree: &swayipc::Node) -> &swayipc::Node {
     unreachable!("cannot find focused window in")
 }
 
-fn find_parent<'a>(tree: &'a swayipc::Node, win: &'a swayipc::Node) -> &'a swayipc::Node {
-    let mut stack = Vec::with_capacity(tree.nodes.len() + tree.floating_nodes.len());
-    stack.push(tree);
+fn find_parent<'a>(workspaces: &'a Vec<Node>, win: &'a Node) -> &'a Node {
+    let mut stack = Vec::with_capacity(workspaces.len());
+    stack.extend(workspaces);
 
     while let Some(n) = stack.pop() {
         if n.nodes.iter().any(|n| n.id == win.id) {
@@ -145,13 +153,8 @@ fn find_parent<'a>(tree: &'a swayipc::Node, win: &'a swayipc::Node) -> &'a swayi
     unreachable!("cannot find parent for {}", win.id)
 }
 
-fn find_workspace<'a>(outputs: &'a swayipc::Node, win: &'a swayipc::Node) -> &'a swayipc::Node {
-    let workspaces: Vec<_> = outputs.nodes.iter()
-        .flat_map(|outputs| outputs.nodes.as_slice())
-        .filter(|workspace| workspace.name.as_deref() != Some("__i3_scratch"))
-        .collect();
-
-    for ws in &workspaces {
+fn find_workspace<'a>(workspaces: &'a Vec<Node>, win: &'a Node) -> &'a Node {
+    for ws in workspaces {
         if ws.id == win.id {
             return ws
         }
