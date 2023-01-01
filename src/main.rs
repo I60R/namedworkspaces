@@ -5,7 +5,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut sway_tx = swayipc::Connection::new()?;
 
     use swayipc::EventType::*;
-    let events = sway_rx.subscribe([Workspace, Window, Binding])?;
+    let events = sway_rx.subscribe([Window, Binding, Workspace])?;
 
     for e in events {
         match e {
@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 use swayipc::{WorkspaceEvent, WorkspaceChange::*};
                 if let WorkspaceEvent { change: Init, .. } = *e {
                     if let Some(ws) = e.current {
-                        set_new_workspace_name(&mut sway_tx, ws)?;
+                        set_new_workspace_name(ws)?;
                     }
                 }
             },
@@ -24,8 +24,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             },
             Ok(swayipc::Event::Binding(_)) => {
-                let win = find_focused(sway_tx.get_tree()?);
-                set_workspace_name(&mut sway_tx, win)?;
+                let focused = find_focused(sway_tx.get_tree()?);
+                set_workspace_name(&mut sway_tx, focused)?;
             }
             _ => {}
         }
@@ -33,14 +33,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn set_new_workspace_name(
-    sway: &mut swayipc::Connection,
-    ws: swayipc::Node
-) -> Result<(), Box<dyn std::error::Error>> {
+fn set_new_workspace_name(ws: swayipc::Node) -> Result<(), Box<dyn std::error::Error>> {
     let ws_num = ws.num.expect("Workspaces should be numbered");
 
     let style = "color='lightgreen' baseline_shift='superscript' font_size='10pt'";
     let ws_new_name = format!("{ws_num}<span {style}>＋</span>");
+
+    let mut sway = swayipc::Connection::new()?;
 
     sway.run_command(format!("rename workspace to {ws_new_name}"))?;
 
@@ -57,8 +56,13 @@ fn set_workspace_name(
     let parent = find_parent(outputs, &win);
     let siblings = parent.nodes.len();
 
+    let win_name = win.app_id.clone()
+        .or_else(|| win.window_properties.clone().and_then(|p| p.class.or(p.instance).clone()))
+        .unwrap_or_default();
+
     let mut layout_icons = String::new();
-    println!("{:?}", win.node_type);
+    let mut new_workspace = false;
+
     let layout_icon = if win.node_type == NodeType::FloatingCon {
         if siblings == 0 { "▪" } else { "▣" }
     } else {
@@ -81,7 +85,8 @@ fn set_workspace_name(
                     "▤"
                 }
             } else {
-                "□"
+                new_workspace = true;
+                ""
             }
         }
     };
@@ -92,17 +97,17 @@ fn set_workspace_name(
     let ws_old_name = ws.name.expect("Unnamed workspace");
     let ws_num = ws.num.expect("Unnumbered workspace");
 
-    let win_name = win.app_id.clone()
-        .or_else(|| win.window_properties.clone().and_then(|p| p.class.or(p.instance).clone()))
-        .unwrap_or_default();
-
     let ws_icon_style = "baseline_shift='superscript' font_size='12pt' color='lightgreen'";
     let ws_icon = assign_icon(&win_name);
 
     let ws_name_style = "color='orange' baseline_shift='2pt'";
-    let ws_name = format!("{layout_icon} <span {ws_name_style}> {win_name} </span>");
+    let ws_name = if !new_workspace {
+        format!(" {layout_icon} <span {ws_name_style}> {win_name} </span>")
+    } else {
+        String::from(" ")
+    };
 
-    let ws_new_name = format!("{ws_num}<span {ws_icon_style}>{ws_icon}</span> {ws_name}");
+    let ws_new_name = format!("{ws_num}<span {ws_icon_style}>{ws_icon}</span>{ws_name}");
 
     sway.run_command(format!("rename workspace {ws_old_name} to {ws_new_name}"))?;
 
@@ -172,6 +177,7 @@ fn assign_icon(app_id: &str) -> &str {
         "org.kde.krusader" => "",
         "albert" => "",
         "gnome_system_monitor" => "",
+        "" => "＋",
         _ => "?",
     }
 }
