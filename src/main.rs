@@ -2,30 +2,25 @@ use swayipc::{NodeType, NodeLayout};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sway_rx = swayipc::Connection::new()?;
-    let mut sway_tx = swayipc::Connection::new()?;
 
     use swayipc::EventType::*;
     let events = sway_rx.subscribe([Window, Binding, Workspace])?;
 
     for e in events {
         match e {
-            Ok(swayipc::Event::Workspace(e)) => {
-                use swayipc::{WorkspaceEvent, WorkspaceChange::*};
-                if let WorkspaceEvent { change: Init, .. } = *e {
-                    if let Some(ws) = e.current {
-                        set_new_workspace_name(ws)?;
-                    }
-                }
-            },
             Ok(swayipc::Event::Window(e)) => {
                 use swayipc::{WindowEvent, WindowChange::*};
                 if let WindowEvent { change: Focus | Move | Floating, .. } = *e {
-                    set_workspace_name(&mut sway_tx, e.container)?;
+                    let mut sway_tx = swayipc::Connection::new()?;
+                    let tree = &sway_tx.get_tree()?;
+                    set_workspace_name(&mut sway_tx, tree, &e.container)?;
                 }
             },
             Ok(swayipc::Event::Binding(_)) => {
-                let focused = find_focused(sway_tx.get_tree()?);
-                set_workspace_name(&mut sway_tx, focused)?;
+                let mut sway_tx = swayipc::Connection::new()?;
+                let tree = sway_tx.get_tree()?;
+                let focused = find_focused(&tree);
+                set_workspace_name(&mut sway_tx, &tree, focused)?;
             }
             _ => {}
         }
@@ -33,27 +28,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn set_new_workspace_name(ws: swayipc::Node) -> Result<(), Box<dyn std::error::Error>> {
-    let ws_num = ws.num.expect("Workspaces should be numbered");
-
-    let style = "color='lightgreen' baseline_shift='superscript' font_size='10pt'";
-    let ws_new_name = format!("{ws_num}<span {style}>＋</span>");
-
-    let mut sway = swayipc::Connection::new()?;
-
-    sway.run_command(format!("rename workspace to {ws_new_name}"))?;
-
-    Ok(())
-}
 
 fn set_workspace_name(
     sway: &mut swayipc::Connection,
-    win: swayipc::Node,
+    tree: &swayipc::Node,
+    win: &swayipc::Node,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let outputs = sway.get_tree()?;
 
-    let ws = find_workspace(outputs.clone(), &win);
-    let parent = find_parent(outputs, &win);
+    let ws = find_workspace(tree, &win);
+    let parent = find_parent(tree, &win);
     let siblings = parent.nodes.len();
 
     let win_name = win.app_id.clone()
@@ -61,7 +44,6 @@ fn set_workspace_name(
         .unwrap_or_default();
 
     let mut layout_icons = String::new();
-    let mut new_workspace = false;
 
     let layout_icon = if win.node_type == NodeType::FloatingCon {
         if siblings == 0 { "▪" } else { "▣" }
@@ -85,7 +67,6 @@ fn set_workspace_name(
                     "▤"
                 }
             } else {
-                new_workspace = true;
                 ""
             }
         }
@@ -94,17 +75,17 @@ fn set_workspace_name(
     let layout_icon_style = "font_size='16pt' color='lightgreen'";
     let layout_icon = format!("<span {layout_icon_style}>{layout_icon}</span>");
 
-    let ws_old_name = ws.name.expect("Unnamed workspace");
+    let ws_old_name = ws.name.as_ref().expect("Unnamed workspace");
     let ws_num = ws.num.expect("Unnumbered workspace");
 
     let ws_icon_style = "baseline_shift='superscript' font_size='12pt' color='lightgreen'";
     let ws_icon = assign_icon(&win_name);
 
     let ws_name_style = "color='orange' baseline_shift='2pt'";
-    let ws_name = if !new_workspace {
+    let ws_name = if ws.id != win.id {
         format!(" {layout_icon} <span {ws_name_style}> {win_name} </span>")
     } else {
-        String::from(" ")
+        String::new()
     };
 
     let ws_new_name = format!("{ws_num}<span {ws_icon_style}>{ws_icon}</span>{ws_name}");
@@ -115,7 +96,7 @@ fn set_workspace_name(
 }
 
 
-fn find_focused(tree: swayipc::Node) -> swayipc::Node {
+fn find_focused(tree: &swayipc::Node) -> &swayipc::Node {
     let mut stack = Vec::with_capacity(tree.nodes.len() + tree.floating_nodes.len());
     stack.push(tree);
 
@@ -123,14 +104,14 @@ fn find_focused(tree: swayipc::Node) -> swayipc::Node {
         if n.focused {
             return n
         }
-        stack.extend(n.nodes);
-        stack.extend(n.floating_nodes);
+        stack.extend(n.nodes.as_slice());
+        stack.extend(n.floating_nodes.as_slice());
     }
 
     unreachable!("cannot find focused window in")
 }
 
-fn find_parent(tree: swayipc::Node, win: &swayipc::Node) -> swayipc::Node {
+fn find_parent<'a>(tree: &'a swayipc::Node, win: &'a swayipc::Node) -> &'a swayipc::Node {
     let mut stack = Vec::with_capacity(tree.nodes.len() + tree.floating_nodes.len());
     stack.push(tree);
 
@@ -141,23 +122,34 @@ fn find_parent(tree: swayipc::Node, win: &swayipc::Node) -> swayipc::Node {
         if n.floating_nodes.iter().any(|n| n.id == win.id) {
             return n
         }
-        stack.extend(n.nodes);
-        stack.extend(n.floating_nodes);
+        stack.extend(n.nodes.as_slice());
+        stack.extend(n.floating_nodes.as_slice());
     }
 
     unreachable!("cannot find parent for {}", win.id)
 }
 
-fn find_workspace(outputs: swayipc::Node, win: &swayipc::Node) -> swayipc::Node {
-    let workspaces: Vec<_> = outputs.nodes.into_iter()
-        .flat_map(|outputs| outputs.nodes)
+fn find_workspace<'a>(outputs: &'a swayipc::Node, win: &'a swayipc::Node) -> &'a swayipc::Node {
+    let workspaces: Vec<_> = outputs.nodes.iter()
+        .flat_map(|outputs| outputs.nodes.as_slice())
         .filter(|workspace| workspace.name.as_deref() != Some("__i3_scratch"))
         .collect();
 
-    for ws in workspaces {
-        let ws_clone = ws.clone();
-        if ws.find(|n| n.id == win.id).is_some() {
-            return ws_clone
+    for ws in &workspaces {
+        if ws.id == win.id {
+            return ws
+        }
+
+        let mut stack = Vec::with_capacity(ws.nodes.len() + ws.floating_nodes.len());
+        stack.extend(ws.nodes.as_slice());
+        stack.extend(ws.floating_nodes.as_slice());
+
+        while let Some(ws_win) = stack.pop() {
+            if ws_win.id == win.id {
+                return ws
+            }
+            stack.extend(ws_win.nodes.as_slice());
+            stack.extend(ws_win.floating_nodes.as_slice());
         }
     }
 
