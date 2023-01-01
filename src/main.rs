@@ -64,7 +64,7 @@ fn set_workspace_name(
                 if siblings == 2 {
                     if parent.nodes[0].id == win.id { "⬒" } else { "⬓" }
                 } else {
-                    "▤"
+                    "<span font_size='24pt' baseline_shift='-3pt'></span>"
                 }
             } else {
                 ""
