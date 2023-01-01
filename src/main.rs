@@ -1,30 +1,45 @@
-use swayipc::{NodeType, NodeLayout};
+use swayipc::{Event, EventType, WindowEvent, NodeType, NodeLayout, WindowChange};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sway_rx = swayipc::Connection::new()?;
 
-    use swayipc::EventType::*;
-    let events = sway_rx.subscribe([Window, Binding, Workspace])?;
+    let events = sway_rx
+        .subscribe([EventType::Window, EventType::Binding])?;
 
     for e in events {
         match e {
-            Ok(swayipc::Event::Window(e)) => {
-                use swayipc::{WindowEvent, WindowChange::*};
-                if let WindowEvent { change: Focus | Move | Floating, .. } = *e {
-                    let mut sway_tx = swayipc::Connection::new()?;
-                    let tree = &sway_tx.get_tree()?;
-                    set_workspace_name(&mut sway_tx, tree, &e.container)?;
-                }
-            },
-            Ok(swayipc::Event::Binding(_)) => {
+
+            Ok(Event::Window(e)) if matches!(*e, WindowEvent {
+                change:
+                    | WindowChange::Focus
+                    | WindowChange::Move
+                    | WindowChange::Floating,
+                ..
+            }) => {
                 let mut sway_tx = swayipc::Connection::new()?;
                 let tree = sway_tx.get_tree()?;
-                let focused = find_focused(&tree);
-                set_workspace_name(&mut sway_tx, &tree, focused)?;
+                set_workspace_name(&mut sway_tx, &tree, &e.container)?;
+            },
+
+            Ok(Event::Window(e)) if matches!(*e, WindowEvent {
+                change: WindowChange::Close,
+                ..
+            }) => {
+                let mut sway_tx = swayipc::Connection::new()?;
+                let tree = sway_tx.get_tree()?;
+                set_workspace_name(&mut sway_tx, &tree, find_focused(&tree))?;
+            },
+
+            Ok(Event::Binding(_)) => {
+                let mut sway_tx = swayipc::Connection::new()?;
+                let tree = sway_tx.get_tree()?;
+                set_workspace_name(&mut sway_tx, &tree, find_focused(&tree))?;
             }
+
             _ => {}
         }
     }
+
     Ok(())
 }
 
@@ -39,8 +54,9 @@ fn set_workspace_name(
     let parent = find_parent(tree, &win);
     let siblings = parent.nodes.len();
 
-    let win_name = win.app_id.clone()
-        .or_else(|| win.window_properties.clone().and_then(|p| p.class.or(p.instance).clone()))
+    let win_properties = win.window_properties.as_ref();
+    let win_name = win.app_id.as_deref()
+        .or_else(|| win_properties.and_then(|p| p.class.as_deref().or(p.instance.as_deref())))
         .unwrap_or_default();
 
     let mut layout_icons = String::new();
