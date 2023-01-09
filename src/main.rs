@@ -64,6 +64,10 @@ fn get_icons() -> Option<toml::value::Table> {
         return None
     };
 
+    if !config.exists() {
+        return None
+    }
+
     let content = std::fs::read_to_string(config)
         .expect("cannot read config file");
     let value: toml::Value = toml::from_str(&content)
@@ -144,11 +148,11 @@ fn set_workspace_name(
 }
 
 fn assign_icon<'a>(win_name: &str, icons: &'a Option<toml::value::Table>) -> &'a str {
-    if win_name == "" {
+    if win_name.is_empty() {
         return "＋"
     }
     let Some(icons) = icons else {
-        return ""
+        return "?"
     };
     icons[win_name].as_str().unwrap_or("?")
 }
@@ -194,7 +198,7 @@ fn find_parent<'a>(workspaces: &'a Vec<Node>, win: &'a Node) -> &'a Node {
         stack.extend(n.floating_nodes.as_slice());
     }
 
-    unreachable!("cannot find parent for {}", win.id)
+    return win
 }
 
 fn find_workspace<'a>(workspaces: &'a Vec<Node>, win: &'a Node) -> &'a Node {
