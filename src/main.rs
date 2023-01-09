@@ -1,6 +1,8 @@
 use swayipc::{Event, EventType, WindowEvent, NodeType, NodeLayout, WindowChange, Node, Connection};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let icons = get_icons();
+
     let sway_rx = Connection::new()?;
 
     let events = sway_rx
@@ -15,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }) => {
                 let mut sway = Connection::new()?;
                 let workspaces = get_workspaces(&mut sway)?;
-                set_workspace_name(&mut sway, &workspaces, &e.container)?;
+                set_workspace_name(&mut sway, &workspaces, &e.container, &icons)?;
             },
 
             Ok(Event::Window(e)) if matches!(*e, WindowEvent {
@@ -25,14 +27,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut sway = Connection::new()?;
                 let tree = get_workspaces(&mut sway)?;
                 let focused = find_focused(&tree);
-                set_workspace_name(&mut sway, &tree, focused)?;
+                set_workspace_name(&mut sway, &tree, focused, &icons)?;
             },
 
             Ok(Event::Binding(_)) => {
                 let mut sway = Connection::new()?;
                 let tree = get_workspaces(&mut sway)?;
                 let focused = find_focused(&tree);
-                set_workspace_name(&mut sway, &tree, focused)?;
+                set_workspace_name(&mut sway, &tree, focused, &icons)?;
             }
 
             _ => {}
@@ -42,11 +44,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn get_icons() -> Option<toml::value::Table> {
+    let config_dir = std::env::var("XDG_CONFIG_HOME")
+        .map(|xdg_config_home| {
+            std::path::PathBuf::from(xdg_config_home)
+                .join("namedworkspaces")
+        });
+
+    let config_dir = config_dir.or_else(|_| std::env::var("HOME")
+        .map(|home| {
+            std::path::PathBuf::from(home)
+                .join(".config/namedworkspaces")
+        }));
+
+    let config_dir = config_dir
+        .map(|d| d.join("config.toml"));
+
+    let Ok(config) = config_dir else {
+        return None
+    };
+
+    let content = std::fs::read_to_string(config)
+        .expect("cannot read config file");
+    let value: toml::Value = toml::from_str(&content)
+        .expect("invalid config format");
+
+    value.get("applications")
+        .and_then(|val| val.as_table())
+        .cloned()
+}
+
 
 fn set_workspace_name(
     sway: &mut Connection,
     workspaces: &Vec<Node>,
     win: &Node,
+    icons: &Option<toml::value::Table>
 ) -> Result<(), Box<dyn std::error::Error>> {
 
     let ws = find_workspace(workspaces, &win);
@@ -71,7 +104,7 @@ fn set_workspace_name(
                     if parent.nodes[0].id == win.id { "◧" } else { "◨" }
                 } else {
                     for x in 0..siblings {
-                        layout_icons.push_str(if parent.nodes[x].id == win.id { "▮" } else { "▯" });
+                        layout_icons += if parent.nodes[x].id == win.id { "▮" } else { "▯" };
                     }
                     &layout_icons
                 }
@@ -94,7 +127,7 @@ fn set_workspace_name(
     let ws_num = ws.num.expect("Unnumbered workspace");
 
     let ws_icon_style = "baseline_shift='superscript' font_size='12pt' color='lightgreen'";
-    let ws_icon = assign_icon(&win_name);
+    let ws_icon = assign_icon(&win_name, icons);
 
     let ws_name_style = "color='orange' baseline_shift='2pt'";
     let ws_name = if ws.id != win.id {
@@ -109,6 +142,17 @@ fn set_workspace_name(
 
     Ok(())
 }
+
+fn assign_icon<'a>(win_name: &str, icons: &'a Option<toml::value::Table>) -> &'a str {
+    if win_name == "" {
+        return "＋"
+    }
+    let Some(icons) = icons else {
+        return ""
+    };
+    icons[win_name].as_str().unwrap_or("?")
+}
+
 
 fn get_workspaces(sway: &mut Connection) -> Result<Vec<Node>, Box<dyn std::error::Error>> {
     let tree = sway.get_tree()?;
@@ -173,23 +217,5 @@ fn find_workspace<'a>(workspaces: &'a Vec<Node>, win: &'a Node) -> &'a Node {
     }
 
     unreachable!("cannot find active workspace")
-}
-
-fn assign_icon(app_id: &str) -> &str {
-    match app_id {
-        "firefox" => "",
-        "neovide" => "",
-        "Code" => "",
-        "Chromium" => "",
-        "gthumb" => "",
-        "swappy" => "",
-        "org.twosheds.iwgtk" => "直",
-        "org.gnome.Weather" => "",
-        "org.kde.krusader" => "",
-        "albert" => "",
-        "gnome_system_monitor" => "",
-        "" => "＋",
-        _ => "?",
-    }
 }
 

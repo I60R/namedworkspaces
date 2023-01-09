@@ -6,3 +6,4 @@ edition = "2021"
 
 [dependencies]
 swayipc = "3.0.1"
+toml = "0.5.10"
