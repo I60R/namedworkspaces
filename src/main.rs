@@ -48,6 +48,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 struct Config {
     applications: Option<toml::value::Table>,
     styles: Option<toml::value::Table>,
+    icons: Option<toml::value::Table>,
 }
 
 fn get_config() -> Config {
@@ -87,9 +88,14 @@ fn get_config() -> Config {
         .and_then(|val| val.as_table())
         .cloned();
 
+    let icons = value.get("icons")
+        .and_then(|val| val.as_table())
+        .cloned();
+
     Config {
         applications,
         styles,
+        icons,
     }
 }
 
@@ -110,28 +116,51 @@ fn set_workspace_name(
         .or_else(|| win_properties.and_then(|p| p.class.as_deref().or(p.instance.as_deref())))
         .unwrap_or_default();
 
+    let icon = |entry, alternative| config.icons.as_ref()
+        .and_then(|s| s.get(entry)?.as_str())
+        .unwrap_or(alternative);
+
     let mut layout_icons = String::new();
 
     let layout_icon = if win.node_type == NodeType::FloatingCon {
-        if siblings == 0 { "▪" } else { "▣" }
+        if siblings == 0 {
+            icon("floating", "▪")
+        } else {
+            icon("floating_unfocused", "▣")
+        }
     } else {
         if siblings == 1 {
-            "■"
+            icon("single_window", "■")
         } else {
             if parent.layout == NodeLayout::SplitH {
                 if siblings == 2 {
-                    if parent.nodes[0].id == win.id { "◧" } else { "◨" }
+                    if parent.nodes[0].id == win.id {
+                        icon("split_horizontal_two_windows_focus_left", "◧")
+                    } else {
+                        icon("split_horizontal_two_windows_focus_right", "◨")
+                    }
                 } else {
                     for x in 0..siblings {
-                        layout_icons += if parent.nodes[x].id == win.id { "▮" } else { "▯" };
+                        layout_icons += if parent.nodes[x].id == win.id {
+                            icon("split_horizontal_focused", "▮")
+                        } else {
+                            icon("split_horizontal_unfocused", "▯")
+                        };
                     }
                     &layout_icons
                 }
             } else if parent.layout == NodeLayout::SplitV {
                 if siblings == 2 {
-                    if parent.nodes[0].id == win.id { "⬒" } else { "⬓" }
+                    if parent.nodes[0].id == win.id {
+                        icon("split_vertical_focus_top", "⬒")
+                    } else {
+                        icon("split_vertical_focus_bottom", "⬓")
+                    }
                 } else {
-                    "<span font_size='24pt' baseline_shift='-3pt'></span>"
+                    icon(
+                        "split_vertical_many_windows",
+                        "<span font_size='24pt' baseline_shift='-3pt'></span>"
+                    )
                 }
             } else {
                 ""
@@ -139,23 +168,24 @@ fn set_workspace_name(
         }
     };
 
-    let layout_icon_style = config.styles.as_ref().and_then(|s| s.get("layout")?.as_str())
-        .unwrap_or("font_size='16pt' color='lightgreen'");
+    let style = |entry, alternative| config.styles.as_ref()
+        .and_then(|s| s.get(entry)?.as_str())
+        .unwrap_or(alternative);
+
+    let layout_icon_style = style("layout", "font_size='16pt' color='lightgreen'");
     let layout_icon = format!("<span {layout_icon_style}>{layout_icon}</span>");
 
     let ws_old_name = ws.name.as_ref().expect("Unnamed workspace");
-
     let ws_num = ws.num.expect("Unnumbered workspace");
-    let ws_num_style = config.styles.as_ref().and_then(|s| s.get("number")?.as_str())
-        .unwrap_or_default();
+    println!("{ws_num}");
+
+    let ws_num_style = style("number", "");
     let ws_num = format!("<span {ws_num_style}>{ws_num}</span>");
 
-    let ws_icon_style = config.styles.as_ref().and_then(|s| s.get("icon")?.as_str())
-        .unwrap_or("baseline_shift='superscript' font_size='12pt' color='lightgreen'");
+    let ws_icon_style = style("icon", "baseline_shift='superscript' font_size='12pt' color='lightgreen'");
     let ws_icon = assign_icon(&win_name, &config.applications);
 
-    let ws_name_style = config.styles.as_ref().and_then(|s| s.get("name")?.as_str())
-        .unwrap_or("color='orange' baseline_shift='2pt'");
+    let ws_name_style = style("name", "color='orange' baseline_shift='2pt'");
     let ws_name = if ws.id != win.id {
         format!(" {layout_icon} <span {ws_name_style}> {win_name} </span>")
     } else {
