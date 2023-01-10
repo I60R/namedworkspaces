@@ -1,5 +1,4 @@
-[applications]
-
+[applications] # requires nerd fonts
 firefox = ""
 neovide = ""
 Code = ""
@@ -11,3 +10,8 @@ swappy = ""
 "org.kde.krusader" = ""
 albert = ""
 gnome_system_monitor = ""
+
+[styles] # pango markup
+layout = "font_size='16pt' color='lightgreen'"
+icon = "baseline_shift='superscript' font_size='12pt' color='lightgreen'"
+name = "color='orange' baseline_shift='2pt'"

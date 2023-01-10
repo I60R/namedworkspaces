@@ -1,7 +1,7 @@
 use swayipc::{Event, EventType, WindowEvent, NodeType, NodeLayout, WindowChange, Node, Connection};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let icons = get_icons();
+    let config = get_config();
 
     let sway_rx = Connection::new()?;
 
@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }) => {
                 let mut sway = Connection::new()?;
                 let workspaces = get_workspaces(&mut sway)?;
-                set_workspace_name(&mut sway, &workspaces, &e.container, &icons)?;
+                set_workspace_name(&mut sway, &workspaces, &e.container, &config)?;
             },
 
             Ok(Event::Window(e)) if matches!(*e, WindowEvent {
@@ -27,14 +27,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut sway = Connection::new()?;
                 let tree = get_workspaces(&mut sway)?;
                 let focused = find_focused(&tree);
-                set_workspace_name(&mut sway, &tree, focused, &icons)?;
+                set_workspace_name(&mut sway, &tree, focused, &config)?;
             },
 
             Ok(Event::Binding(_)) => {
                 let mut sway = Connection::new()?;
                 let tree = get_workspaces(&mut sway)?;
                 let focused = find_focused(&tree);
-                set_workspace_name(&mut sway, &tree, focused, &icons)?;
+                set_workspace_name(&mut sway, &tree, focused, &config)?;
             }
 
             _ => {}
@@ -44,7 +44,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn get_icons() -> Option<toml::value::Table> {
+#[derive(Default)]
+struct Config {
+    applications: Option<toml::value::Table>,
+    styles: Option<toml::value::Table>,
+}
+
+fn get_config() -> Config {
     let config_dir = std::env::var("XDG_CONFIG_HOME")
         .map(|xdg_config_home| {
             std::path::PathBuf::from(xdg_config_home)
@@ -61,11 +67,11 @@ fn get_icons() -> Option<toml::value::Table> {
         .map(|d| d.join("config.toml"));
 
     let Ok(config) = config_dir else {
-        return None
+        return Config::default()
     };
 
     if !config.exists() {
-        return None
+        return Config::default()
     }
 
     let content = std::fs::read_to_string(config)
@@ -73,9 +79,18 @@ fn get_icons() -> Option<toml::value::Table> {
     let value: toml::Value = toml::from_str(&content)
         .expect("invalid config format");
 
-    value.get("applications")
+    let applications = value.get("applications")
         .and_then(|val| val.as_table())
-        .cloned()
+        .cloned();
+
+    let styles = value.get("styles")
+        .and_then(|val| val.as_table())
+        .cloned();
+
+    Config {
+        applications,
+        styles,
+    }
 }
 
 
@@ -83,7 +98,7 @@ fn set_workspace_name(
     sway: &mut Connection,
     workspaces: &Vec<Node>,
     win: &Node,
-    icons: &Option<toml::value::Table>
+    config: &Config,
 ) -> Result<(), Box<dyn std::error::Error>> {
 
     let ws = find_workspace(workspaces, &win);
@@ -124,16 +139,23 @@ fn set_workspace_name(
         }
     };
 
-    let layout_icon_style = "font_size='16pt' color='lightgreen'";
+    let layout_icon_style = config.styles.as_ref().and_then(|s| s.get("layout")?.as_str())
+        .unwrap_or("font_size='16pt' color='lightgreen'");
     let layout_icon = format!("<span {layout_icon_style}>{layout_icon}</span>");
 
     let ws_old_name = ws.name.as_ref().expect("Unnamed workspace");
+
     let ws_num = ws.num.expect("Unnumbered workspace");
+    let ws_num_style = config.styles.as_ref().and_then(|s| s.get("number")?.as_str())
+        .unwrap_or_default();
+    let ws_num = format!("<span {ws_num_style}>{ws_num}</span>");
 
-    let ws_icon_style = "baseline_shift='superscript' font_size='12pt' color='lightgreen'";
-    let ws_icon = assign_icon(&win_name, icons);
+    let ws_icon_style = config.styles.as_ref().and_then(|s| s.get("icon")?.as_str())
+        .unwrap_or("baseline_shift='superscript' font_size='12pt' color='lightgreen'");
+    let ws_icon = assign_icon(&win_name, &config.applications);
 
-    let ws_name_style = "color='orange' baseline_shift='2pt'";
+    let ws_name_style = config.styles.as_ref().and_then(|s| s.get("name")?.as_str())
+        .unwrap_or("color='orange' baseline_shift='2pt'");
     let ws_name = if ws.id != win.id {
         format!(" {layout_icon} <span {ws_name_style}> {win_name} </span>")
     } else {
