@@ -179,7 +179,11 @@ fn set_workspace_name(
     let ws_num = ws.num.expect("Unnumbered workspace");
 
     let ws_icon_style = style("icon", "baseline_shift='superscript' font_size='12pt' color='lightgreen'");
-    let ws_icon = assign_icon(&win_name, &config.applications);
+    let ws_icon = if win_name.is_empty() {
+        icon("empty_workspace", "＋")
+    } else {
+        icon("no_icon", "?")
+    };
 
     let ws_name_style = style("name", "color='orange' baseline_shift='2pt'");
     let ws_name = if ws.id != win.id {
@@ -195,15 +199,6 @@ fn set_workspace_name(
     Ok(())
 }
 
-fn assign_icon<'a>(win_name: &str, icons: &'a Option<toml::value::Table>) -> &'a str {
-    if win_name.is_empty() {
-        return "＋"
-    }
-    let Some(icons) = icons else {
-        return "?"
-    };
-    icons[win_name].as_str().unwrap_or("?")
-}
 
 
 fn get_workspaces(sway: &mut Connection) -> Result<Vec<Node>, Box<dyn std::error::Error>> {
