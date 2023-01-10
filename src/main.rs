@@ -182,7 +182,10 @@ fn set_workspace_name(
     let ws_icon = if win_name.is_empty() {
         icon("empty_workspace", "＋")
     } else {
-        icon("no_icon", "?")
+        config.applications.as_ref()
+            .and_then(|c| c.get(win_name))
+            .and_then(|v| v.as_str())
+            .unwrap_or_else(|| icon("no_icon", "?"))
     };
 
     let ws_name_style = style("name", "color='orange' baseline_shift='2pt'");
