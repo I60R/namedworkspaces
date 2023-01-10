@@ -177,10 +177,6 @@ fn set_workspace_name(
 
     let ws_old_name = ws.name.as_ref().expect("Unnamed workspace");
     let ws_num = ws.num.expect("Unnumbered workspace");
-    println!("{ws_num}");
-
-    let ws_num_style = style("number", "");
-    let ws_num = format!("<span {ws_num_style}>{ws_num}</span>");
 
     let ws_icon_style = style("icon", "baseline_shift='superscript' font_size='12pt' color='lightgreen'");
     let ws_icon = assign_icon(&win_name, &config.applications);
