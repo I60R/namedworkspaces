@@ -132,7 +132,7 @@ fn set_workspace_name(
         if siblings == 1 {
             icon("single_window", "■")
         } else {
-            if parent.layout == NodeLayout::SplitH {
+            if matches!(parent.layout, NodeLayout::SplitH | NodeLayout::Tabbed) {
                 if siblings == 2 {
                     if parent.nodes[0].id == win.id {
                         icon("split_horizontal_two_windows_focus_left", "◧")
@@ -149,7 +149,7 @@ fn set_workspace_name(
                     }
                     &layout_icons
                 }
-            } else if parent.layout == NodeLayout::SplitV {
+            } else if matches!(parent.layout, NodeLayout::SplitV | NodeLayout::Stacked) {
                 if siblings == 2 {
                     if parent.nodes[0].id == win.id {
                         icon("split_vertical_focus_top", "⬒")
