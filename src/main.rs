@@ -3,9 +3,13 @@ use swayipc::{Event, EventType, WindowEvent, NodeType, NodeLayout, WindowChange,
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = get_config();
 
-    let sway_rx = Connection::new()?;
+    let mut sway = Connection::new()?;
 
-    let events = sway_rx
+    let tree = get_workspaces(&mut sway)?;
+    let focused = find_focused(&tree);
+    set_workspace_name(&mut sway, &tree, focused, &config)?;
+
+    let events = sway
         .subscribe([EventType::Window, EventType::Binding])?;
 
     for e in events {
